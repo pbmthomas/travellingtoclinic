@@ -47,7 +47,20 @@ input:focus,select:focus,button:focus-visible{outline:3px solid var(--yel);outli
 .summary{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 0;border-bottom:2px solid var(--line);margin-bottom:16px;font-size:15px}
 .summary b{font-weight:800}
 h2{font-size:22px;margin:28px 0 10px;font-weight:800}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:4px 0 18px}
+.tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:14px 16px;background:var(--card);border:2px solid var(--line);color:var(--ink);cursor:pointer;min-height:104px}
+.tile:hover{border-color:var(--blue)}
+.tile[aria-selected=true]{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:inset 0 -5px 0 var(--yel)}
+.tl{font-size:14px;font-weight:700;opacity:.85}.tl em{font-style:normal;background:var(--yel);color:#111;font-size:12px;padding:1px 6px;border-radius:99px;margin-left:4px;white-space:nowrap}
+.tt{font-size:clamp(22px,3.2vw,30px);font-weight:800;line-height:1.1;white-space:nowrap}
+.ts{font-size:14px;opacity:.85}
+#panel{min-height:120px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:0 0 14px}
+.facts div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.facts dt{font-size:13px;font-weight:700;color:var(--mut)}.facts dd{margin:2px 0 0;font-size:20px;font-weight:800;line-height:1.25}
+.facts small{display:block;font-size:13px;font-weight:400;color:var(--mut)}
+.notes{margin:0 0 14px;padding-left:20px;font-size:15px;max-width:70ch}.notes li{margin:4px 0}.notes a{color:var(--blue)}
+@media(max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .opt .t{font-size:30px;font-weight:800;line-height:1.1;white-space:nowrap}
 .opt .k{font-weight:600;color:var(--mut);font-size:14px}
@@ -66,7 +79,7 @@ details summary{cursor:pointer;color:var(--blue);font-weight:600;min-height:32px
 ol.legs{margin:6px 0 0;padding-left:20px;font-size:15px}
 ol.legs li{margin:4px 0}
 ol.legs .tm{font-weight:800;white-space:nowrap}
-.links{display:flex;flex-wrap:wrap;gap:10px}
+.links{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
 .links a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:2px solid var(--line);border-radius:8px;color:var(--blue);font-weight:600;text-decoration:none}
 .links a:hover{border-color:var(--blue)}
 .note{font-size:13px;color:var(--mut);margin-top:28px}
@@ -206,8 +219,8 @@ async function lookup(pc) {
 // OSRM via FOSSGIS (car/bike/foot), with the OSRM demo server as a car fallback
 async function road(profile, a, b) {
   const coords = `${a.lon},${a.lat};${b.lon},${b.lat}`;
-  const urls = [`https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${coords}?overview=false`];
-  if (profile === 'car') urls.push(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
+  const urls = [`https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${coords}?overview=false&steps=true`];
+  if (profile === 'car') urls.push(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false&steps=true`);
   for (const u of urls) {
     try { const j = await getJSON(u); if (j.code === 'Ok' && j.routes?.length) return j.routes[0]; } catch (e) {}
   }
@@ -279,9 +292,21 @@ function haversine(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-function roadCard(label, r, extra, best) {
-  if (!r) return `<div class="opt"><div class="k">${label}</div><div class="d">No route returned</div></div>`;
-  return `<div class="opt${best ? ' best' : ''}"><div class="k">${label}${best ? ' · fastest' : ''}</div><div class="t">${fmtDur(r.duration)}</div><div class="d">${fmtMi(r.distance)}${extra ? ' · ' + extra : ''}</div></div>`;
+// main roads/paths a route uses, by distance, in route order (no turn-by-turn)
+function viaRow(r) {
+  const tot = new Map(), first = new Map();
+  (r.legs || []).flatMap(l => l.steps || []).forEach((st, i) => {
+    const k = (st.ref || '').split(';')[0].trim() || (st.name || '').trim();
+    if (!k) return; tot.set(k, (tot.get(k) || 0) + st.distance); if (!first.has(k)) first.set(k, i);
+  });
+  const top = [...tot].filter(([, d]) => d > Math.min(1000, r.distance * 0.08)).sort((x, y) => y[1] - x[1]).slice(0, 4).sort((x, y) => first.get(x[0]) - first.get(y[0]));
+  return top.length ? ['Mainly via', top.map(([k]) => esc(k)).join(', ')] : null;
+}
+function isLondon(pc) {
+  const d = (pc || '').toUpperCase().split(' ')[0], m = d.match(/^([A-Z]+)(\d+)/); if (!m) return false;
+  const [, a, n] = [0, m[1], +m[2]];
+  if (['E','EC','N','NW','SE','SW','W','WC','BR','CR','HA','SM','UB'].includes(a)) return true;
+  return ({ IG: [1,2,3,4,5,6,8,11].includes(n), RM: n <= 14, EN: n <= 5, KT: n <= 6 || n === 9, TW: n <= 14, DA: [5,6,7,8,14,15,16,17,18].includes(n) })[a] || false;
 }
 
 $('f').addEventListener('submit', async ev => {
@@ -317,34 +342,68 @@ $('f').addEventListener('submit', async ev => {
     const ptBest = all.length ? Math.min(...all.map(j => j.dur)) : Infinity;
     const times = { car: car?.duration ?? Infinity, bike: bike?.duration ?? Infinity, foot: foot?.duration ?? Infinity, pt: ptBest };
     const fastest = Object.entries(times).sort((x, y) => x[1] - y[1])[0][0];
-    let fuel = '';
-    if (car) { const mpg = +$('mpg').value || 45, ppl = +$('ppl').value || 1.4; fuel = '≈ £' + (miles(car.distance) / mpg * 4.54609 * ppl).toFixed(2) + ' fuel'; }
-
-    const ptCards = pt.ok?.length ? pt.ok.map(jCard).join('')
-      : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : 'No public transport journeys found for this time.'} Try Google Maps below.</p>`;
-    const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.length}`, tr.err ? 'Transitous unavailable' : `Transitous: ${tr.ok.length}`].join(' · ');
-
-    const q = (s) => encodeURIComponent(s);
+    const q = x => encodeURIComponent(x);
     const g = m => `https://www.google.com/maps/dir/?api=1&origin=${q(a.pc)}&destination=${q(b.pc)}&travelmode=${m}`;
+    const link = (href, t) => `<a href="${href}" target="_blank" rel="noopener">${t}</a>`;
+    const km = r => r.distance / 1000;
+    const inLon = isLondon(a.pc) || isLondon(b.pc), bothLon = isLondon(a.pc) && isLondon(b.pc);
+    const facts = rows => `<dl class="facts">${rows.filter(Boolean).map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
+    const notes = n => n.filter(Boolean).length ? `<ul class="notes">${n.filter(Boolean).map(x => `<li>${x}</li>`).join('')}</ul>` : '';
+    const noRoute = m => `<p class="empty">No ${m} route came back from the routing service. ${link(g(m === 'walking' ? 'walking' : m === 'cycling' ? 'bicycling' : 'driving'), 'Try Google Maps')}.</p>`;
 
+    // ---- panels ----
+    const P = {};
+    {
+      const cards = all.length ? all.map(jCard).join('')
+        : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : 'No public transport journeys found for this time.'}</p>`;
+      const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.length}`, tr.err ? 'Transitous unavailable' : `Transitous: ${tr.ok.length}`].join(' · ');
+      P.pt = `<p class="srcs">${srcNote}. Sorted by arrival time.</p>${cards}
+        <div class="links">${link(g('transit'), 'Google Maps · transit')}${link('https://www.nationalrail.co.uk/', 'National Rail')}${link('https://www.nationalexpress.com/', 'National Express')}</div>`;
+    }
+    if (car) {
+      const mpg = +$('mpg').value || 45, ppl = +$('ppl').value || 1.4;
+      const fuelL = miles(car.distance) / mpg * 4.54609;
+      P.car = facts([['Time', fmtDur(car.duration) + ' <small>without traffic</small>'], ['Distance', fmtMi(car.distance)], ['Fuel', `≈ £${(fuelL * ppl).toFixed(2)} <small>${fuelL.toFixed(1)} L at ${mpg} mpg</small>`],
+          ['CO₂', `≈ ${(km(car) * 0.17).toFixed(1)} kg <small>average UK car</small>`], viaRow(car), ['Return trip', `≈ £${(fuelL * ppl * 2).toFixed(2)} fuel`]])
+        + notes([inLon && `This journey starts or ends in Greater London, which is all inside the ULEZ. If you go into central London, the Congestion Charge applies too. ${link('https://tfl.gov.uk/modes/driving/check-your-vehicle/', 'Check your vehicle on TfL')}.`,
+          picked && 'Hospital car parks are often busy and usually charge. Check the trust’s website for parking, Blue Badge spaces and drop-off points.',
+          'Times assume clear roads. Allow extra at peak times.'])
+        + `<div class="links">${link(g('driving'), 'Google Maps · driving (live traffic)')}</div>`;
+    } else P.car = noRoute('driving');
+    if (bike) {
+      P.bike = facts([['Time', fmtDur(bike.duration) + ' <small>at a steady pace</small>'], ['Distance', fmtMi(bike.distance)], viaRow(bike),
+          car && ['CO₂ saved', `≈ ${(km(car) * 0.17).toFixed(1)} kg <small>vs driving</small>`]])
+        + notes([km(bike) > 25 && 'This is a long ride, beyond what most people cycle for a routine trip.',
+          bothLon && `Santander Cycles hire bikes are available across much of central London. ${link('https://tfl.gov.uk/modes/cycling/santander-cycles', 'Docking stations on TfL')}.`,
+          'The route favours cycle-friendly roads where it can, but hills are not taken into account.'])
+        + `<div class="links">${link(g('bicycling'), 'Google Maps · cycling')}${link('https://www.cyclestreets.net/', 'CycleStreets (quieter-route options)')}</div>`;
+    } else P.bike = noRoute('cycling');
+    if (foot) {
+      P.foot = facts([['Time', fmtDur(foot.duration) + ' <small>at about 3 mph</small>'], ['Distance', fmtMi(foot.distance)], ['Steps', `≈ ${(Math.round(km(foot) * 1300 / 100) * 100).toLocaleString('en-GB')}`], viaRow(foot)])
+        + notes([foot.duration > 3600 && 'This walk is over an hour. For most people, public transport or a mix of walking and transport will be more practical.',
+          'Walking times are for a typical adult. Allow more time if you walk more slowly or use a mobility aid' + (picked ? ', and bear in mind that dilating eye drops can blur vision for several hours after an appointment.' : '.')])
+        + `<div class="links">${link(g('walking'), 'Google Maps · walking')}</div>`;
+    } else P.foot = noRoute('walking');
+
+    // ---- tiles ----
+    const ptT = all.length ? fmtDur(ptBest) : '—';
+    const ptSub = all.length ? `${all.length} option${all.length > 1 ? 's' : ''}${all.some(j => j.fare) ? ' · from £' + Math.min(...all.filter(j => j.fare).map(j => j.fare)).toFixed(2) : ''}` : (pt.err ? 'Unavailable' : 'None found');
+    const T = [['car', 'Drive', car ? fmtDur(car.duration) : '—', car ? fmtMi(car.distance) : 'No route'],
+      ['bike', 'Cycle', bike ? fmtDur(bike.duration) : '—', bike ? fmtMi(bike.distance) : 'No route'],
+      ['foot', 'Walk', foot ? fmtDur(foot.duration) : '—', foot ? fmtMi(foot.distance) : 'No route'],
+      ['pt', 'Public transport', ptT, ptSub]];
+    let sel = all.length ? 'pt' : fastest;
     $('out').innerHTML = `
       <div class="summary"><span><b>${esc(a.pc)}</b> ${esc(a.place)}</span><span>→</span><span><b>${esc(b.pc)}</b> ${esc(b.place)}</span><span style="color:var(--mut)">${fmtMi(crow)} as the crow flies</span></div>
-      <h2>Public transport${fastest === 'pt' ? ' · fastest' : ''}</h2>
-      <p class="srcs">${srcNote}, sorted by arrival time</p>
-      ${ptCards}
-      <h2>By road and on foot</h2>
-      <div class="grid">
-        ${roadCard('Drive', car, fuel, fastest === 'car')}
-        ${roadCard('Cycle', bike, '', fastest === 'bike')}
-        ${roadCard('Walk', foot, '', fastest === 'foot')}
-      </div>
-      <h2>Check or book elsewhere</h2>
-      <div class="links">
-        <a href="${g('transit')}" target="_blank" rel="noopener">Google Maps · transit</a>
-        <a href="${g('driving')}" target="_blank" rel="noopener">Google Maps · driving</a>
-        <a href="https://www.nationalrail.co.uk/" target="_blank" rel="noopener">National Rail</a>
-        <a href="https://www.nationalexpress.com/" target="_blank" rel="noopener">National Express</a>
-      </div>`;
+      <div class="tiles" role="tablist" aria-label="Travel modes">${T.map(([k, l, t, sub]) => `<button type="button" role="tab" class="tile" id="tab-${k}" data-k="${k}" aria-controls="panel" aria-selected="false"><span class="tl">${l}${fastest === k ? ' <em>fastest</em>' : ''}</span><span class="tt">${t}</span><span class="ts">${sub}</span></button>`).join('')}</div>
+      <section id="panel" role="tabpanel"></section>`;
+    const show = k => { sel = k; for (const el of document.querySelectorAll('.tile')) el.setAttribute('aria-selected', el.dataset.k === k); $('panel').setAttribute('aria-labelledby', 'tab-' + k); $('panel').innerHTML = P[k]; };
+    for (const el of document.querySelectorAll('.tile')) el.addEventListener('click', () => show(el.dataset.k));
+    $('out').querySelector('.tiles').addEventListener('keydown', e => {
+      const ks = T.map(x => x[0]), i = ks.indexOf(sel), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) { e.preventDefault(); const n = ks[(i + d + ks.length) % ks.length]; show(n); $('tab-' + n).focus(); }
+    });
+    show(sel);
     msg('');
   } catch (e) {
     msg(e.message || 'Something went wrong fetching routes.', true);
