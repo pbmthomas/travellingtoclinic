@@ -30,6 +30,15 @@ input,select,button{font:inherit;font-size:16px;min-height:48px;border-radius:8p
 input,select{width:100%;padding:10px 12px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
 input.pc{text-transform:uppercase;font-weight:800;font-size:20px;letter-spacing:.02em}
 input:focus,select:focus,button:focus-visible{outline:3px solid var(--yel);outline-offset:1px;border-color:var(--blue)}
+#to{font-weight:800;font-size:18px}
+.combo{position:relative}.cw{display:flex}.cw input{border-radius:8px 0 0 8px}
+.tg{width:48px;flex:none;border:2px solid var(--line);border-left:0;border-radius:0 8px 8px 0;background:var(--card);color:var(--ink);cursor:pointer}
+#tolist{position:absolute;z-index:10;left:0;right:0;top:100%;margin-top:4px;max-height:min(60vh,440px);overflow:auto;background:var(--bg);border:2px solid var(--line);border-radius:8px;box-shadow:0 10px 28px rgba(0,0,0,.2)}
+.gh{position:sticky;top:0;z-index:1;background:var(--blue);color:#fff;font-size:13px;font-weight:800;padding:6px 12px}
+.op{padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--line);min-height:44px}
+.op b{display:block;font-weight:600;line-height:1.3}.op span{font-size:13px;color:var(--mut)}
+.op[aria-selected=true],.op:hover{background:var(--card);box-shadow:inset 4px 0 0 var(--yel)}
+.none{padding:12px;color:var(--mut);font-size:15px}
 .swap{background:var(--card);border:2px solid var(--line);color:var(--ink);width:48px;cursor:pointer}
 .go{background:var(--yel);color:#111;border:0;font-weight:800;padding:0 28px;cursor:pointer;margin-top:12px;width:100%}
 .go:disabled{opacity:.6;cursor:wait}
@@ -61,6 +70,8 @@ ol.legs .tm{font-weight:800;white-space:nowrap}
 .links a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:2px solid var(--line);border-radius:8px;color:var(--blue);font-weight:600;text-decoration:none}
 .links a:hover{border-color:var(--blue)}
 .note{font-size:13px;color:var(--mut);margin-top:28px}
+.src{font-size:12px;color:var(--mut);align-self:center;margin-left:4px}.srcs{margin:-6px 0 10px;font-size:13px;color:var(--mut)}
+.chip.tram{background:#66cc00;color:#111}.chip.ferry{background:#0077be;color:#fff}
 .empty{color:var(--mut);padding:10px 0}
 @media(max-width:600px){form{grid-template-columns:1fr}.swap{width:100%}}
 @media(prefers-reduced-motion:no-preference){.opt,.jny{animation:in .25s ease both}@keyframes in{from{opacity:0;transform:translateY(4px)}}}
@@ -76,7 +87,10 @@ ol.legs .tm{font-weight:800;white-space:nowrap}
 <form id="f" autocomplete="off">
   <div><label for="from">From postcode</label><input id="from" class="pc" placeholder="MK40 1AA" required></div>
   <button type="button" class="swap" id="swap" aria-label="Swap start and end">⇅</button>
-  <div><label for="to">To postcode</label><input id="to" class="pc" placeholder="EC1V 2PD" required></div>
+  <div class="combo"><label for="to">To: postcode or NHS eye unit</label>
+    <div class="cw"><input id="to" placeholder="Postcode, or type a unit / trust" required role="combobox" aria-expanded="false" aria-controls="tolist" aria-autocomplete="list"><button type="button" class="tg" id="toggle" aria-label="Show all NHS eye units" tabindex="-1">▾</button></div>
+    <div id="tolist" role="listbox" aria-label="Destinations" hidden></div>
+  </div>
 </form>
 <div class="row2">
   <div><label for="when">Leave / arrive</label><select id="when"><option value="now">Leave now</option><option value="Departing">Depart at</option><option value="Arriving">Arrive by</option></select></div>
@@ -87,7 +101,7 @@ ol.legs .tm{font-weight:800;white-space:nowrap}
 <button class="go" id="go" form="f" type="submit">Find travel options</button>
 <p id="msg" role="status"></p>
 <section id="out"></section>
-<p class="note">Car fuel cost is an estimate from distance and your mpg; tolls, parking and congestion charges are not included. Public transport fares are TfL's where it returns one. Times from TfL are live timetable data; road times assume typical traffic-free conditions.</p>
+<p class="note">Car fuel cost is an estimate from distance and your mpg; tolls, parking and congestion charges are not included. Public transport fares are TfL's where it returns one. Public transport comes from the TfL Journey Planner and from <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous</a> (open timetable data, © OpenStreetMap contributors and the data publishers listed there); road times assume typical traffic-free conditions.</p>
 </main>
 
 <script>
@@ -100,11 +114,73 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const fmtDur = sec => { const m = Math.round(sec / 60); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); return h + ' h ' + String(m % 60).padStart(2, '0'); };
 const miles = m => (m / 1609.344);
 const fmtMi = m => { const v = miles(m); return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' mi'; };
-const hhmm = iso => iso ? iso.slice(11, 16) : '';
+const hhmm = iso => !iso ? '' : /(Z|[+-]\d\d:?\d\d)$/.test(iso) ? new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit' }) : iso.slice(11, 16);
+
+// NHS eye units: [site name (ODS register), trust, postcode, inLondon]
+const SITES = [["Ophthalmology Kgh","Barking, Havering and Redbridge University Hospitals","IG3 8YB",1],["Ophthalmology Qh","Barking, Havering and Redbridge University Hospitals","RM7 0AG",1],["Ophthalmology (Nuh)","Barts Health","E13 8SL",1],["Ophthalmology 1","Barts Health","E1 1BB",1],["Ophthalmology Wch","Barts Health","E11 1NR",1],["Cwft - Ophthalmology","Chelsea and Westminster Hospital FT","SW10 9NH",1],["Ophthalmology Sutton","Epsom and St Helier University Hospitals","SM2 5NF",1],["Hammersmith Hospital - Western Eye Hospital Elective Surgical Hub","Imperial College Healthcare","NW1 5QH",1],["Western Eye Clinic","Imperial College Healthcare","NW1 5QH",1],["Western Eye Hospital","Imperial College Healthcare","NW1 5QH",1],["Ophthalmology","King's College Hospital FT","DA14 6LT",1],["West Kent Eye Clinic","King's College Hospital FT","BR6 8ND",1],["Accident & Emergency","Moorfields Eye Hospital FT","EC1V 2PD",1],["Clinic","Moorfields Eye Hospital FT","SW15 5PN",1],["Mehbx","Moorfields Eye Hospital FT","NW4 3FP",1],["Mehnc","Moorfields Eye Hospital FT","SW20 8DA",1],["Mehsfd","Moorfields Eye Hospital FT","E15 4BQ",1],["Moorfield Eye Hospital City Road Elective Surgical Hub","Moorfields Eye Hospital FT","EC1V 2PD",1],["Moorfield Eye Hospital St Ann's Elective Surgical Hub","Moorfields Eye Hospital FT","N15 3TH",1],["Moorfields At Brent Cross","Moorfields Eye Hospital FT","NW4 3FP",1],["Moorfields At Croydon Vision","Moorfields Eye Hospital FT","CR0 2AR",1],["Moorfields At Hoxton","Moorfields Eye Hospital FT","N1 7TX",1],["Moorfields At Richard Desmond Children's Eye Centre","Moorfields Eye Hospital FT","EC1V 9EZ",1],["Moorfields At Stratford","Moorfields Eye Hospital FT","E15 4BQ",1],["Moorfields Clinic At Croydon University Hospital","Moorfields Eye Hospital FT","CR7 7YE",1],["Moorfields Clinic At Ealing","Moorfields Eye Hospital FT","UB1 3HW",1],["Moorfields Community Eye Clinic At Barking Hospital","Moorfields Eye Hospital FT","IG11 9LX",1],["Moorfields Community Eye Clinic At Nightingale Nursing Home","Moorfields Eye Hospital FT","SW12 8NB",1],["Moorfields Community Eye Clinic At Parkway Health Centre","Moorfields Eye Hospital FT","CR0 0JA",1],["Moorfields Community Eye Clinic At Purley War Memorial Hospital","Moorfields Eye Hospital FT","CR8 2YL",1],["Moorfields Community Eye Clinic At Sanderstead Health Centre","Moorfields Eye Hospital FT","CR2 9JN",1],["Moorfields Community Eye Clinic At the Nelson Health Centre","Moorfields Eye Hospital FT","SW20 8DA",1],["Moorfields Eye Centre At Croydon University Hospital","Moorfields Eye Hospital FT","CR7 7YE",1],["Moorfields Eye Centre At Ealing Hospital","Moorfields Eye Hospital FT","UB1 3HW",1],["Moorfields Eye Centre At Northwick Park Hospital","Moorfields Eye Hospital FT","HA1 3UJ",1],["Moorfields Eye Centre At St George's Hospital","Moorfields Eye Hospital FT","SW17 0QT",1],["Moorfields Eye Hospital (City Road Campus)","Moorfields Eye Hospital FT","EC1V 2PD",1],["Moorfields Eye Unit At Queen Marys Hospital","Moorfields Eye Hospital FT","SW15 5PN",1],["Moorfields Eye Unit At St Ann's Hospital","Moorfields Eye Hospital FT","N15 3TH",1],["Moorfields Eye Unit At St Bartholomew's Hospital","Moorfields Eye Hospital FT","EC1A 7BE",1],["Moorfields Ophthalmology Centre, Stratford Elective Surgical Hub","Moorfields Eye Hospital FT","E20 1AS",1],["Eye Clinic","Royal Free London FT","N18 1QX",1],["St Pancras Eye Clinic","Royal Free London FT","NW1 0PE",1],["St Pancras Kidney, Diabetes and Eye Centre","Royal Free London FT","NW1 0PE",1],["Ophthalmology","St George's University Hospitals FT","SW17 0QT",1],["Ophthalmologists","Airedale FT","BD20 6TD",0],["Ophthalmology","Ashford and St Peter's Hospitals FT","KT16 0PZ",0],["Ophthalmology Ah","Ashford and St Peter's Hospitals FT","TW15 3AA",0],["Ophthalmology Bch","Barking, Havering and Redbridge University Hospitals","CM15 8DR",0],["Bh Ophthalmology Service","Bedfordshire Hospitals FT","MK42 9DJ",0],["Moorfields At Bedford Ophthalmology Services","Bedfordshire Hospitals FT","MK40 2NT",0],["Birmingham Children's Hospital - Ophthalmic Outpatients Paediatric","Birmingham Women's and Children's FT","B4 6NL",0],["Blackpool Victoria Hospital Ophthalmology Elective Surgical Hub","Blackpool Teaching Hospitals FT","FY3 8NR",0],["Eye Clinic Victoria Hosp","Blackpool Teaching Hospitals FT","FY3 8NR",0],["National Artificial Eye Service","Blackpool Teaching Hospitals FT","FY2 0BF",0],["Eye Clinic","Bolton FT","BL4 0JR",0],["Ophthalmology Virtual Clinics","Bolton FT","BL4 0JR",0],["Waters Meeting H.C. Ophthalmology Clinic","Bolton FT","BL1 8SW",0],["Bradford University Eye Clinic","Bradford Teaching Hospitals FT","BD7 1DP",0],["Bristol Eye Hospital","Bristol FT","BS1 2LX",0],["Ophthalmology","Bristol FT","BS14 0DE",0],["Ophthalmology Beh","Bristol FT","BS1 2LX",0],["Mandeville Hosp (Eye)","Buckinghamshire Healthcare","HP21 8AL",0],["Ophthalmology Directorate","Buckinghamshire Healthcare","HP11 2TT",0],["Stoke Mandeville Hospital Ophthalmology Elective Surgical Hub","Buckinghamshire Healthcare","HP7 0JD",0],["Ophthalmology Crh","Calderdale and Huddersfield FT","HX3 0PW",0],["Ophthalmology Hri","Calderdale and Huddersfield FT","HD3 3EA",0],["Cataract Clinic","Cambridge University Hospitals FT","CB2 0QQ",0],["Eye Unit","Cambridge University Hospitals FT","CB2 0QQ",0],["Ophthalmology Sw","Cambridge University Hospitals FT","CB2 0QQ",0],["The University Eye Clinic","Cambridge University Hospitals FT","CB1 1BD",0],["Vision and Eye Research Unit","Cambridge University Hospitals FT","CB1 2LZ",0],["Ophthalmology","Countess of Chester Hospital FT","CH2 1UL",0],["Ophthalmology","County Durham and Darlington FT","DL14 6AD",0],["Ophthalmology Uhnd","County Durham and Darlington FT","DH1 5TW",0],["Ophthalmology Opd","Doncaster and Bassetlaw Teaching Hospitals FT","S64 0AZ",0],["Ophthalmology D.C.H.","Dorset County Hospital FT","DT1 2JY",0],["Ophthalmology Mdgh Opd","East Cheshire","SK10 3BL",0],["Ophthalmology Bh","East Kent Hospitals University FT","CT17 0HD",0],["Ophthalmology Kch","East Kent Hospitals University FT","CT1 3NG",0],["Ophthalmology Qeqm","East Kent Hospitals University FT","CT9 4AN",0],["Ophthalmology Rvh","East Kent Hospitals University FT","CT19 5BN",0],["Ophthalmology Whh","East Kent Hospitals University FT","TN24 0LZ",0],["Ophthalmology","East Lancashire Hospitals","BB4 7PL",0],["Ophthalmology - Bgh","East Lancashire Hospitals","BB10 2PQ",0],["Ophthalmology - Pch","East Lancashire Hospitals","BB9 9SZ",0],["Eye Health Centre","East Suffolk and North Essex FT","IP23 7DD",0],["Ophthalmology","East Suffolk and North Essex FT","IP4 5PD",0],["Ophthalmology","East Suffolk and North Essex FT","CO4 5JL",0],["Ophthalmology Bexhill","East Sussex Healthcare","TN40 2DZ",0],["Ophthalmology/H","East and North Hertfordshire Teaching","SG14 1LP",0],["Ophthalmology/L","East and North Hertfordshire Teaching","SG1 4AB",0],["Ophthalmology/Q","East and North Hertfordshire Teaching","AL7 4HQ",0],["Ophthalmology Epsom","Epsom and St Helier University Hospitals","KT18 7EG",0],["Ophthalmology Cofph","Frimley Health FT","GU16 7UJ",0],["Ophthalmology Cowph","Frimley Health FT","SL2 4HL",0],["Ophthalmology Fph","Frimley Health FT","GU16 7UJ",0],["Ophthalmology Hwd","Frimley Health FT","SL5 7GB",0],["Ophthalmology Wph","Frimley Health FT","SL2 4HL",0],["Ophthalmology Cgh","Gloucestershire Hospitals FT","GL53 7AN",0],["Ophthalmology Grh","Gloucestershire Hospitals FT","GL1 3NN",0],["Ophthalmology (Hn)","Great Western Hospitals FT","SN3 6BB",0],["Ophthalmology","Hampshire Hospitals FT","RG24 9NA",0],["Hull Eye Elective Surgical Hub","Hull University Teaching Hospitals","HU3 2JZ",0],["Ophthalmology Hri","Hull University Teaching Hospitals","HU3 2JZ",0],["Eye Clinic","Isle of Wight","PO30 5TG",0],["Ophthalmology","James Paget University Hospitals FT","NR31 6LA",0],["Ophthalmology","Kettering General Hospital FT","NN16 8UZ",0],["Lancashire Eye Centre","Lancashire Teaching Hospitals FT","PR7 1PP",0],["Ophthalmology","Liverpool University Hospitals FT","L7 8XP",0],["Manchester Royal Eye Hospital","Manchester University FT","M13 9WL",0],["Mcr Royal Eye Altrincham","Manchester University FT","WA14 2RE",0],["Mreh Emergency Eye","Manchester University FT","M13 9WL",0],["Mreh Macular Clinic North","Manchester University FT","M8 5EL",0],["Mreh Macular Clinic South","Manchester University FT","M22 5RF",0],["Royal Manchester Eye Hospital A&E","Manchester University FT","M13 9WL",0],["Eye Clinic","Mersey and West Lancashire Teaching Hospitals","WA9 3DA",0],["Ophthalmology Odgh","Mersey and West Lancashire Teaching Hospitals","L39 2AZ",0],["Ophthalmology Sdgh","Mersey and West Lancashire Teaching Hospitals","PR8 6PN",0],["Ophthalmology","Mid Cheshire Hospitals FT","CW1 4QJ",0],["Eye Centre Pinderfields","Mid Yorkshire Teaching","WF1 4DG",0],["Eye Clinic Mh","Mid and South Essex FT","CM1 7ET",0],["Eye Clinic Sht","Mid and South Essex FT","SS0 0RY",0],["Mkgh Eye Clinic","Milton Keynes University Hospital FT","MK6 5LD",0],["Mehbed","Moorfields Eye Hospital FT","MK42 9DJ",0],["Mehpb","Moorfields Eye Hospital FT","EN6 2RY",0],["Moorfields Eye Centre At Bedford Hospital (South)","Moorfields Eye Hospital FT","MK42 9DJ",0],["Moorfields Eye Unit At Potters Bar Hospital Community Hospital","Moorfields Eye Hospital FT","EN6 2RY",0],["Grove Road Ophthalmology Clinic","Norfolk and Norwich University Hospitals FT","NR1 3RH",0],["Ophthalmology","Norfolk and Norwich University Hospitals FT","NR4 7UY",0],["Ophthalmology Warrington","North Cheshire and Mersey FT","WA5 1QG",0],["Ophthalmology Cic","North Cumbria Integrated Care FT","CA2 7HY",0],["Ophthalmology Wch","North Cumbria Integrated Care FT","CA28 8JG",0],["Ophthalmic Outpatients","North West Anglia FT","PE29 6NT",0],["Eye Opd","Northampton General Hospital","NN1 5BD",0],["Oicc (Oldham Eye Hub Only)","Northern Care Alliance FT","OL1 1NL",0],["Oldham Integrated Care Centre (Paediatric Ophthalmology)","Northern Care Alliance FT","OL1 1NL",0],["Rochdale Infirmary Ophthalmology Department","Northern Care Alliance FT","OL12 0NB",0],["Ophthalmology Dpowh","Northern Lincolnshire and Goole FT","DN33 2BA",0],["Community Eyecare Surgical Centre (Nuh)","Nottingham University Hospitals","NG8 5DG",0],["Qmc Eye A&E","Nottingham University Hospitals","NG7 2UH",0],["Qmc Eyes","Nottingham University Hospitals","NG7 2UH",0],["Eyes Horton","Oxford University Hospitals FT","OX16 9AL",0],["Ophthalmology (Jr)","Oxford University Hospitals FT","OX3 9DU",0],["Ophthalmology","Portsmouth Hospitals University","PO6 3LY",0],["Queen Victoria Hospital (Ophthalmology)","Queen Victoria Hospital FT","RH19 3DZ",0],["P Brk Op Ophthalmology","Royal Berkshire FT","RG12 9RT",0],["P Rbh Eye Clinic Ophth","Royal Berkshire FT","RG1 5AN",0],["P Town Op Ophthalmology","Royal Berkshire FT","RG9 2DR",0],["P Wbch Op Ophthalmology","Royal Berkshire FT","RG18 3AS",0],["Ophthalmology Clinic","Royal Cornwall Hospitals","TR1 3LJ",0],["Ophthalmology","Royal Devon University Healthcare FT","EX2 5DW",0],["Ophthalmology Opd","Royal Surrey FT","GU2 7XX",0],["Ophthalmology","Salisbury FT","SP2 8BJ",0],["Birmingham Midland Eye Centre (Bmec)","Sandwell and West Birmingham Hospitals","B18 7QH",0],["Eye City","Sandwell and West Birmingham Hospitals","B18 7QH",0],["Eye Sandwell","Sandwell and West Birmingham Hospitals","B71 4HG",0],["Northern General Eye Centre Elective Surgical Hub","Sheffield Teaching Hospitals FT","S5 7AU",0],["Diagnostic Ophthalmology Centre","Somerset FT","TA1 2PX",0],["Ophthalmology","Somerset FT","TA1 5DA",0],["Ophthalmology","Somerset FT","BA21 4AT",0],["Ophthalmology Diagnostic Centre (East)","Somerset FT","BA20 1EX",0],["Yeovil Ophthalmology Diagnostic Centre","Somerset FT","BA21 4AT",0],["Sunderland Eye Infirmary","South Tyneside and Sunderland FT","SR2 9HP",0],["Sunderland Specialist Eye Hospital","South Tyneside and Sunderland FT","SR1 3AE",0],["Ophthalmology Clinic","Stockport FT","SK2 7JE",0],["Ophthalmology","The Dudley Group FT","DY1 2HQ",0],["Ophthalmology","The Princess Alexandra Hospital","CM20 1QX",0],["Anglia Community Eye Service","The Queen Elizabeth Hospital, King's Lynn, FT","PE14 0SN",0],["Ophthalmology","The Queen Elizabeth Hospital, King's Lynn, FT","PE30 4ET",0],["Ophthalmology","The Rotherham FT","S60 2UD",0],["Eye Infirmary","The Royal Wolverhampton","WV10 0QP",0],["Ophthalmology Prh","The Shrewsbury and Telford Hospital","TF1 6TF",0],["Ophthalmology Rsh","The Shrewsbury and Telford Hospital","SY3 8XQ",0],["Eye Casualty","University Hospital Southampton FT","SO16 6YD",0],["Ophthalmology Outpatients","University Hospital Southampton FT","SO16 6YD",0],["Aston University Eye Clinic","University Hospitals Birmingham FT","B4 7ET",0],["Eye Clinic","University Hospitals Birmingham FT","B75 7RR",0],["Ophthalmology","University Hospitals Birmingham FT","B9 5SS",0],["Ophthalmology Department","University Hospitals Birmingham FT","B15 2WB",0],["Solihull Ophthalmology","University Hospitals Birmingham FT","B91 2JL",0],["Ophthalmology","University Hospitals Dorset FT","BH7 7DW",0],["Royal Eye Infirmary","University Hospitals Plymouth","PL6 5ZF",0],["Ophthalmology Prh","University Hospitals Sussex FT","RH16 4EX",0],["Sussex Eye Hospital","University Hospitals Sussex FT","BN2 5BF",0],["Community Ophthalmology","University Hospitals of Derby and Burton FT","DE22 3NE",0],["Eye Outpatients","University Hospitals of Derby and Burton FT","DE22 3NE",0],["Lri Ophthalmology Department","University Hospitals of Leicester","LE1 5WW",0],["Ophthalmology (Mmh)","University Hospitals of Leicester","LE13 1SJ",0],["Ophthalmology (Slh)","University Hospitals of Leicester","LE16 7BN",0],["Ophthalmology Dept(Cch)","University Hospitals of Leicester","LE67 4DE",0],["Ophthalmology Dept(Lh)","University Hospitals of Leicester","LE11 5JY",0],["Ophthalmology Op (Hdh)","University Hospitals of Leicester","LE10 1AG",0],["Ophthalmology Op (Rh)","University Hospitals of Leicester","LE15 6NT",0],["Stoneygate Eye Hospital","University Hospitals of Leicester","LE2 2PN",0],["Ophthalmology (County)","University Hospitals of North Midlands","ST16 3SA",0],["Ophthalmology Dept","University Hospitals of North Midlands","ST4 6QG",0],["Ophthalmology","Walsall Healthcare","WS2 9PS",0],["Ophthalmology (Hemel Hempstead)","West Hertfordshire Teaching Hospitals","HP2 4AD",0],["Ophthalmology (St Albans)","West Hertfordshire Teaching Hospitals","AL3 5PN",0],["Ophthalmology (Watford)","West Hertfordshire Teaching Hospitals","WD18 0HB",0],["Eyes","West Suffolk FT","IP33 2QZ",0],["Heswall Ophthalmology Clinic","Wirral University Teaching Hospital FT","CH60 7SG",0],["Acute Ophthalmology Powch","Worcestershire Acute Hospitals","B61 0BB",0],["Acute Ophthalmology Th","Worcestershire Acute Hospitals","WR15 8AP",0],["Ophthalmology Ah","Worcestershire Acute Hospitals","B98 7UB",0],["Ophthalmology Kgh","Worcestershire Acute Hospitals","DY11 6RJ",0],["Ophthalmology Wrh","Worcestershire Acute Hospitals","WR5 1DD",0],["Boston House & Wwl Eye Unit","Wrightington, Wigan and Leigh Teaching Hospitals FT","WN6 7LB",0],["Wwl Eye Unit","Wrightington, Wigan and Leigh Teaching Hospitals FT","WN6 7LB",0],["Ophthalmology Dcs Hub","Wye Valley","HR1 2ER",0],["Victoria Eye Unit","Wye Valley","HR1 2ER",0],["Ophthalmology 2 - Selby","York and Scarborough Teaching Hospitals FT","YO8 9BX",0],["Ophthalmology 2-York","York and Scarborough Teaching Hospitals FT","YO31 8HE",0],["Ophthalmology 3 - Selby","York and Scarborough Teaching Hospitals FT","YO8 9BX",0],["Ophthalmology Clinic-Mch","York and Scarborough Teaching Hospitals FT","YO17 7NG",0],["Ophthalmology Clinic-Sgh","York and Scarborough Teaching Hospitals FT","YO12 6QL",0],["Ophthalmology Clinic-Wch","York and Scarborough Teaching Hospitals FT","YO21 1DP",0],["Ophthalmology-Selby","York and Scarborough Teaching Hospitals FT","YO8 9BX",0],["Ophthalmology-York","York and Scarborough Teaching Hospitals FT","YO31 8HE",0]];
+const looksPc = s => /^[A-Z]{1,2}\d/i.test(s.trim()) && norm(s).length <= 7;
+let picked = null, items = [], active = -1, pcReq = 0, pcTimer;
 
 // remember inputs
-try { const s = JSON.parse(localStorage.getItem('pcj') || '{}'); for (const k of ['from','to','mpg','ppl']) if (s[k]) $(k).value = s[k]; } catch (e) {}
-const save = () => { try { localStorage.setItem('pcj', JSON.stringify({from:$('from').value,to:$('to').value,mpg:$('mpg').value,ppl:$('ppl').value})); } catch (e) {} };
+try {
+  const s = JSON.parse(localStorage.getItem('pcj') || '{}');
+  for (const k of ['from','to','mpg','ppl']) if (s[k]) $(k).value = s[k];
+  if (s.site) picked = SITES.find(x => x[0] === s.site[0] && x[2] === s.site[1]) || null;
+} catch (e) {}
+const save = () => { try { localStorage.setItem('pcj', JSON.stringify({from:$('from').value,to:$('to').value,mpg:$('mpg').value,ppl:$('ppl').value,site:picked ? [picked[0], picked[2]] : null})); } catch (e) {} };
+
+// destination combobox
+const box = $('to'), list = $('tolist');
+const openList = on => { list.hidden = !on; box.setAttribute('aria-expanded', on); if (!on) { active = -1; box.removeAttribute('aria-activedescendant'); } };
+function render(q, pcs = []) {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = s => { const h = (s[0] + ' ' + s[1] + ' ' + s[2]).toLowerCase(); return words.every(w => h.includes(w)) || (q && norm(s[2]).startsWith(norm(q))); };
+  const m = SITES.map((s, i) => [s, i]).filter(([s]) => !words.length || hit(s));
+  items = []; let html = '';
+  const opt = (it, title, sub) => { const id = 'o' + items.length; items.push(it); return `<div class="op" role="option" id="${id}" data-n="${items.length - 1}" aria-selected="false"><b>${esc(title)}</b><span>${esc(sub)}</span></div>`; };
+  if (pcs.length) html += '<div class="gh" role="presentation">Postcodes</div>' + pcs.map(p => opt({ pc: p }, p, 'Postcode')).join('');
+  const lon = m.filter(([s]) => s[3]), rest = m.filter(([s]) => !s[3]);
+  if (lon.length) html += `<div class="gh" role="presentation">London (${lon.length})</div>` + lon.map(([s, i]) => opt({ i }, s[0], s[1] + ' · ' + s[2])).join('');
+  if (rest.length) html += `<div class="gh" role="presentation">Rest of England (${rest.length})</div>` + rest.map(([s, i]) => opt({ i }, s[0], s[1] + ' · ' + s[2])).join('');
+  list.innerHTML = html || '<div class="none">No eye units match. Enter a full postcode instead.</div>';
+  active = -1;
+}
+function refresh() {
+  const q = box.value; render(q); openList(true);
+  clearTimeout(pcTimer);
+  if (looksPc(q) && norm(q).length >= 2) {
+    const id = ++pcReq;
+    pcTimer = setTimeout(async () => {
+      try {
+        const j = await getJSON('https://api.postcodes.io/postcodes/' + encodeURIComponent(norm(q)) + '/autocomplete?limit=6');
+        if (id === pcReq && j.result) render(box.value, j.result);
+      } catch (e) {}
+    }, 200);
+  }
+}
+function setActive(n) {
+  const els = list.querySelectorAll('.op'); if (!els.length) return;
+  active = (n + els.length) % els.length;
+  els.forEach((e, k) => e.setAttribute('aria-selected', k === active));
+  els[active].scrollIntoView({ block: 'nearest' }); box.setAttribute('aria-activedescendant', els[active].id);
+}
+function choose(n) {
+  const it = items[n]; if (!it) return;
+  if ('i' in it) { picked = SITES[it.i]; box.value = picked[0]; } else { picked = null; box.value = it.pc; }
+  openList(false);
+}
+box.addEventListener('input', () => { picked = null; refresh(); });
+box.addEventListener('focus', () => { if (!picked) refresh(); });
+box.addEventListener('blur', () => { openList(false); if (!picked && box.value.trim() && looksPc(box.value)) box.value = pretty(box.value); });
+box.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); if (list.hidden) refresh(); setActive(active + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+  else if (e.key === 'Enter' && !list.hidden && active >= 0) { e.preventDefault(); choose(active); }
+  else if (e.key === 'Escape') openList(false);
+});
+list.addEventListener('mousedown', e => { e.preventDefault(); const o = e.target.closest('.op'); if (o) choose(+o.dataset.n); });
+$('toggle').addEventListener('mousedown', e => e.preventDefault());
+$('toggle').addEventListener('click', () => { if (!list.hidden) return openList(false); box.focus(); render(picked ? '' : box.value); openList(true); });
 
 const now = new Date();
 $('date').value = now.toISOString().slice(0, 10);
@@ -112,7 +188,7 @@ $('time').value = now.toTimeString().slice(0, 5);
 const syncWhen = () => { const on = $('when').value !== 'now'; $('date').disabled = $('time').disabled = !on; };
 $('when').addEventListener('change', syncWhen); syncWhen();
 
-$('swap').addEventListener('click', () => { const a = $('from').value; $('from').value = $('to').value; $('to').value = a; });
+$('swap').addEventListener('click', () => { const a = $('from').value; $('from').value = picked ? picked[2] : box.value; box.value = a; picked = null; });
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -138,13 +214,62 @@ async function road(profile, a, b) {
   return null;
 }
 
-async function transit(a, b) {
+// ---- public transport: TfL (best for London/SE) + Transitous (national, open data) ----
+const RAIL = new Set(['RAIL','HIGHSPEED_RAIL','LONG_DISTANCE','NIGHT_RAIL','REGIONAL_FAST_RAIL','REGIONAL_RAIL','SUBURBAN']);
+const tModeKey = m => RAIL.has(m) ? 'rail' : ({ SUBWAY: 'tube', METRO: 'tube', BUS: 'bus', COACH: 'coach', TRAM: 'tram', FERRY: 'ferry', WALK: 'walking' }[m] || 'other');
+const tModeName = m => RAIL.has(m) ? 'Train' : ({ SUBWAY: 'Underground', METRO: 'Metro', BUS: 'Bus', COACH: 'Coach', TRAM: 'Tram', FERRY: 'Ferry', WALK: 'Walk', BIKE: 'Cycle' }[m] || 'Transit');
+const modeKey = id => id === 'national-rail' || id === 'international-rail' ? 'rail' : id;
+
+async function tfl(a, b) {
   const p = new URLSearchParams({ nationalSearch: 'true', journeyPreference: 'LeastTime' });
   const w = $('when').value;
   if (w !== 'now') { p.set('date', $('date').value.replace(/-/g, '')); p.set('time', $('time').value.replace(':', '')); p.set('timeIs', w); }
-  const u = `https://api.tfl.gov.uk/Journey/JourneyResults/${a.lat},${a.lon}/to/${b.lat},${b.lon}?${p}`;
-  const j = await getJSON(u);
-  return j.journeys || [];
+  const j = await getJSON(`https://api.tfl.gov.uk/Journey/JourneyResults/${a.lat},${a.lon}/to/${b.lat},${b.lon}?${p}`);
+  return (j.journeys || []).map(x => {
+    const legs = (x.legs || []).map(l => {
+      const id = l.mode?.id || '';
+      return { key: modeKey(id), walk: id === 'walking', mins: l.duration, dep: l.departureTime,
+        chip: id === 'walking' ? `Walk ${l.duration}m` : (l.routeOptions?.[0]?.name || l.mode?.name || id),
+        text: l.instruction?.summary || l.mode?.name || '' };
+    });
+    return { src: 'TfL', dur: x.duration * 60, start: x.startDateTime, end: x.arrivalDateTime, legs,
+      fare: x.fare?.totalCost ? x.fare.totalCost / 100 : null };
+  });
+}
+
+let motisVer = null;
+async function transitous(a, b) {
+  const p = new URLSearchParams({ fromPlace: `${a.lat},${a.lon}`, toPlace: `${b.lat},${b.lon}` });
+  const w = $('when').value;
+  if (w !== 'now') { p.set('time', new Date(`${$('date').value}T${$('time').value}`).toISOString()); p.set('arriveBy', String(w === 'Arriving')); }
+  let j;
+  for (const v of motisVer ? [motisVer] : ['v5', 'v4', 'v6', 'v3', 'v2', 'v1']) {
+    try { j = await getJSON(`https://api.transitous.org/api/${v}/plan?${p}`); motisVer = v; break; }
+    catch (e) { if (e.status !== 404) throw e; }
+  }
+  if (!j) throw new Error('Transitous API version not found');
+  return (j.itineraries || []).filter(x => (x.legs || []).some(l => l.mode !== 'WALK')).map(x => {
+    const legs = (x.legs || []).map(l => {
+      const walk = l.mode === 'WALK', mins = Math.round(l.duration / 60);
+      const line = l.displayName || l.routeShortName || l.routeLongName || '';
+      const name = line ? `${tModeName(l.mode)} ${line}` : tModeName(l.mode);
+      return { key: tModeKey(l.mode), walk, mins, dep: l.startTime,
+        chip: walk ? `Walk ${mins}m` : name,
+        text: walk ? `Walk to ${l.to?.name || 'destination'}`
+          : `${name} from ${l.from?.name || ''} towards ${l.headsign || l.to?.name || ''}, get off at ${l.to?.name || ''}${l.agencyName ? ' (' + l.agencyName + ')' : ''}` };
+    });
+    const dur = x.duration ?? (new Date(x.endTime) - new Date(x.startTime)) / 1000;
+    return { src: 'Transitous', dur, start: x.startTime, end: x.endTime, legs, fare: null };
+  });
+}
+
+function jCard(j) {
+  const changes = Math.max(0, j.legs.filter(l => !l.walk).length - 1);
+  const chips = j.legs.map(l => `<span class="chip ${esc(l.key)}">${esc(l.chip)}</span>`).join('');
+  const steps = j.legs.map(l => `<li><span class="tm">${hhmm(l.dep)}</span> ${esc(l.text)} <span style="color:var(--mut)">(${l.mins} min)</span></li>`).join('');
+  const fare = j.fare ? ` · £${j.fare.toFixed(2)}` : '';
+  return `<div class="jny"><div class="jh"><span class="t">${fmtDur(j.dur)}</span><span class="m">${hhmm(j.start)} → ${hhmm(j.end)} · ${changes ? changes + ' change' + (changes > 1 ? 's' : '') : 'direct'}${fare}</span></div>
+  <div class="chips">${chips}<span class="src">via ${j.src}</span></div><details><summary>Step by step</summary><ol class="legs">${steps}</ol></details></div>`;
 }
 
 function haversine(a, b) {
@@ -159,61 +284,60 @@ function roadCard(label, r, extra, best) {
   return `<div class="opt${best ? ' best' : ''}"><div class="k">${label}${best ? ' · fastest' : ''}</div><div class="t">${fmtDur(r.duration)}</div><div class="d">${fmtMi(r.distance)}${extra ? ' · ' + extra : ''}</div></div>`;
 }
 
-function modeKey(id) { return id === 'national-rail' || id === 'international-rail' ? 'rail' : id; }
-
-function jCard(j) {
-  const legs = j.legs || [];
-  const moving = legs.filter(l => l.mode?.id !== 'walking');
-  const chips = legs.map(l => {
-    const id = l.mode?.id || '';
-    const nm = id === 'walking' ? `Walk ${l.duration}m` : (l.routeOptions?.[0]?.name || l.mode?.name || id);
-    return `<span class="chip ${esc(modeKey(id))}">${esc(nm)}</span>`;
-  }).join('');
-  const fare = j.fare?.totalCost ? ` · £${(j.fare.totalCost / 100).toFixed(2)}` : '';
-  const changes = Math.max(0, moving.length - 1);
-  const steps = legs.map(l => `<li><span class="tm">${hhmm(l.departureTime)}</span> ${esc(l.instruction?.summary || l.mode?.name)} <span style="color:var(--mut)">(${l.duration} min)</span></li>`).join('');
-  return `<div class="jny"><div class="jh"><span class="t">${fmtDur(j.duration * 60)}</span><span class="m">${hhmm(j.startDateTime)} → ${hhmm(j.arrivalDateTime)} · ${changes ? changes + ' change' + (changes > 1 ? 's' : '') : 'direct'}${fare}</span></div>
-  <div class="chips">${chips}</div><details><summary>Step by step</summary><ol class="legs">${steps}</ol></details></div>`;
-}
-
 $('f').addEventListener('submit', async ev => {
   ev.preventDefault();
-  const f = $('from').value.trim(), t = $('to').value.trim();
+  const f = $('from').value.trim();
+  if (!picked && !looksPc(box.value)) {
+    const exact = SITES.filter(s => s[0].toLowerCase() === box.value.trim().toLowerCase());
+    if (exact.length === 1) picked = exact[0];
+  }
+  const t = picked ? picked[2] : box.value.trim();
   if (!f || !t) return;
+  if (!picked && !looksPc(t)) { msg('Choose an eye unit from the list, or enter a postcode.', true); box.focus(); return; }
+  openList(false);
   save();
   $('go').disabled = true; $('out').innerHTML = ''; msg('Looking up postcodes…');
   try {
     let a, b;
     try { [a, b] = await Promise.all([lookup(f), lookup(t)]); }
-    catch (e) { throw new Error('Couldn’t find one of those postcodes — check them and try again.'); }
+    catch (e) { throw new Error('Couldn’t find one of those postcodes. Check them and try again.'); }
+    if (picked) b.place = picked[0] + ' (' + picked[1] + ')';
     msg('Fetching routes…');
-    const [car, bike, foot, pt] = await Promise.all([
-      road('car', a, b), road('bike', a, b), road('foot', a, b),
-      transit(a, b).then(v => ({ ok: v }), e => ({ err: e }))
+    const settle = p => p.then(v => ({ ok: v }), e => ({ err: e }));
+    const [car, bike, foot, tf, tr] = await Promise.all([
+      road('car', a, b), road('bike', a, b), road('foot', a, b), settle(tfl(a, b)), settle(transitous(a, b))
     ]);
+    const seen = new Set(), all = [];
+    for (const j of [...(tf.ok || []), ...(tr.ok || [])]) {
+      const k = hhmm(j.start) + hhmm(j.end); if (seen.has(k)) continue; seen.add(k); all.push(j);
+    }
+    all.sort((x, y) => new Date(x.end) - new Date(y.end) || x.dur - y.dur);
+    const pt = { ok: all, err: tf.err && tr.err };
     const crow = haversine(a, b);
-    const ptBest = pt.ok?.length ? Math.min(...pt.ok.map(j => j.duration * 60)) : Infinity;
+    const ptBest = all.length ? Math.min(...all.map(j => j.dur)) : Infinity;
     const times = { car: car?.duration ?? Infinity, bike: bike?.duration ?? Infinity, foot: foot?.duration ?? Infinity, pt: ptBest };
     const fastest = Object.entries(times).sort((x, y) => x[1] - y[1])[0][0];
     let fuel = '';
     if (car) { const mpg = +$('mpg').value || 45, ppl = +$('ppl').value || 1.4; fuel = '≈ £' + (miles(car.distance) / mpg * 4.54609 * ppl).toFixed(2) + ' fuel'; }
 
     const ptCards = pt.ok?.length ? pt.ok.map(jCard).join('')
-      : `<p class="empty">${pt.err ? 'TfL couldn’t plan this one' + (pt.err.status === 429 ? ' (rate limit — try again in a minute)' : '') + '.' : 'No public transport journeys found.'} Try the links below.</p>`;
+      : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : 'No public transport journeys found for this time.'} Try Google Maps below.</p>`;
+    const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.length}`, tr.err ? 'Transitous unavailable' : `Transitous: ${tr.ok.length}`].join(' · ');
 
     const q = (s) => encodeURIComponent(s);
     const g = m => `https://www.google.com/maps/dir/?api=1&origin=${q(a.pc)}&destination=${q(b.pc)}&travelmode=${m}`;
 
     $('out').innerHTML = `
       <div class="summary"><span><b>${esc(a.pc)}</b> ${esc(a.place)}</span><span>→</span><span><b>${esc(b.pc)}</b> ${esc(b.place)}</span><span style="color:var(--mut)">${fmtMi(crow)} as the crow flies</span></div>
+      <h2>Public transport${fastest === 'pt' ? ' · fastest' : ''}</h2>
+      <p class="srcs">${srcNote}, sorted by arrival time</p>
+      ${ptCards}
       <h2>By road and on foot</h2>
       <div class="grid">
         ${roadCard('Drive', car, fuel, fastest === 'car')}
         ${roadCard('Cycle', bike, '', fastest === 'bike')}
         ${roadCard('Walk', foot, '', fastest === 'foot')}
       </div>
-      <h2>Public transport${fastest === 'pt' ? ' · fastest' : ''}</h2>
-      ${ptCards}
       <h2>Check or book elsewhere</h2>
       <div class="links">
         <a href="${g('transit')}" target="_blank" rel="noopener">Google Maps · transit</a>
@@ -227,7 +351,7 @@ $('f').addEventListener('submit', async ev => {
   } finally { $('go').disabled = false; }
 });
 
-for (const id of ['from', 'to']) $(id).addEventListener('blur', e => { if (e.target.value.trim()) e.target.value = pretty(e.target.value); });
+for (const id of ['from']) $(id).addEventListener('blur', e => { if (e.target.value.trim()) e.target.value = pretty(e.target.value); });
 }
 </script>
 </body>
