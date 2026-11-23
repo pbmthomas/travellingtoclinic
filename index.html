@@ -370,8 +370,9 @@ async function table(profile, a, cands) {
   const q = `/table/v1/driving/${coords}?sources=0&annotations=duration,distance`;
   const urls = [`https://routing.openstreetmap.de/routed-${profile}${q}`];
   if (profile === 'car') urls.push(`https://router.project-osrm.org${q}`);
-  for (const u of urls) {
+  for (const u of urls) for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      if (attempt) await new Promise(r => setTimeout(r, 800));
       const j = await getJSON(u);
       if (j.code === 'Ok') return cands.map((_, i) => j.durations[0][i + 1] == null ? null : { duration: j.durations[0][i + 1], distance: j.distances?.[0]?.[i + 1] });
     } catch (e) {}
@@ -419,6 +420,8 @@ async function nearest() {
     }
     const t = c => (rank === 'pt' ? (c.pt?.err ? undefined : c.pt?.dur) : c[rank]?.duration) ?? Infinity;
     nearList = [...pool].sort((x, y) => t(x) - t(y) || x.crow - y.crow).slice(0, 5);
+    // anything the one-call table missed: look up each of the 5 individually
+    await Promise.all(nearList.flatMap(c => ['car', 'bike', 'foot'].filter(k => !c[k]).map(async k => { c[k] = await road(k, a, c); })));
     const min = k => Math.min(...nearList.map(c => c[k]?.duration ?? Infinity));
     const mins = { car: min('car'), bike: min('bike'), foot: min('foot') };
     const cell = (c, k) => c[k] ? `<td class="${c[k].duration === mins[k] ? 'q' : ''}${k === rank ? ' rk' : ''}">${fmtDur(c[k].duration)}</td>` : `<td class="${k === rank ? 'rk' : ''}">—</td>`;
