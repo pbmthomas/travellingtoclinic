@@ -260,6 +260,10 @@ const tModeKey = m => RAIL.has(m) ? 'rail' : ({ SUBWAY: 'tube', METRO: 'tube', B
 const tModeName = m => RAIL.has(m) ? 'Train' : ({ SUBWAY: 'Underground', METRO: 'Metro', BUS: 'Bus', COACH: 'Coach', TRAM: 'Tram', FERRY: 'Ferry', WALK: 'Walk', BIKE: 'Cycle' }[m] || 'Transit');
 const modeKey = id => id === 'national-rail' || id === 'international-rail' ? 'rail' : id;
 
+// a journey only counts as public transport if it has a real bus/train/etc leg and takes over a minute
+const isWalk = j => !(j.dur >= 60) || j.legs.every(l => l.walk);
+const TFL_STREET = new Set(['walking', 'cycle', 'cycle-hire', 'taxi', 'car', 'private-car']);
+const TRANSIT = new Set([...RAIL, 'TRANSIT', 'TRAM', 'SUBWAY', 'METRO', 'FERRY', 'AIRPLANE', 'BUS', 'COACH', 'FUNICULAR', 'AERIAL_LIFT', 'AREAL_LIFT', 'CABLE_CAR', 'OTHER']);
 async function tfl(a, b) {
   const p = new URLSearchParams({ nationalSearch: 'true', journeyPreference: 'LeastTime' });
   const w = $('when').value;
@@ -268,7 +272,7 @@ async function tfl(a, b) {
   return (j.journeys || []).map(x => {
     const legs = (x.legs || []).map(l => {
       const id = l.mode?.id || '';
-      return { key: modeKey(id), walk: id === 'walking', mins: l.duration, dep: l.departureTime,
+      return { key: modeKey(id), walk: TFL_STREET.has(id) || !id, mins: l.duration, dep: l.departureTime,
         chip: id === 'walking' ? `Walk ${l.duration}m` : (l.routeOptions?.[0]?.name || l.mode?.name || id),
         text: l.instruction?.summary || l.mode?.name || '' };
     });
@@ -288,14 +292,14 @@ async function transitous(a, b) {
     catch (e) { if (e.status !== 404) throw e; }
   }
   if (!j) throw new Error('Transitous API version not found');
-  return (j.itineraries || []).filter(x => (x.legs || []).some(l => l.mode !== 'WALK')).map(x => {
+  return (j.itineraries || []).map(x => {
     const legs = (x.legs || []).map(l => {
-      const walk = l.mode === 'WALK', mins = Math.round(l.duration / 60);
+      const walk = !TRANSIT.has(l.mode), mins = Math.round(l.duration / 60);
       const line = l.displayName || l.routeShortName || l.routeLongName || '';
       const name = line ? `${tModeName(l.mode)} ${line}` : tModeName(l.mode);
       return { key: tModeKey(l.mode), walk, mins, dep: l.startTime,
-        chip: walk ? `Walk ${mins}m` : name,
-        text: walk ? `Walk to ${l.to?.name || 'destination'}`
+        chip: walk ? `${l.mode === 'WALK' ? 'Walk' : tModeName(l.mode)} ${mins}m` : name,
+        text: walk ? `${l.mode === 'WALK' ? 'Walk' : tModeName(l.mode)} to ${l.to?.name || 'destination'}`
           : `${name} from ${l.from?.name || ''} towards ${l.headsign || l.to?.name || ''}, get off at ${l.to?.name || ''}${l.agencyName ? ' (' + l.agencyName + ')' : ''}` };
     });
     const dur = x.duration ?? (new Date(x.endTime) - new Date(x.startTime)) / 1000;
@@ -376,8 +380,9 @@ async function table(profile, a, cands) {
 }
 
 async function bestPT(a, b) {
-  const [t1, t2] = await Promise.all([tfl(a, b).catch(() => []), transitous(a, b).catch(() => [])]);
-  const all = [...t1, ...t2]; if (!all.length) return null;
+  const [t1, t2] = await Promise.all([tfl(a, b).catch(() => null), transitous(a, b).catch(() => null)]);
+  if (!t1 && !t2) return { err: true };
+  const all = [...(t1 || []), ...(t2 || [])].filter(j => !isWalk(j)); if (!all.length) return null;
   const j = all.reduce((x, y) => y.dur < x.dur ? y : x);
   return { dur: j.dur, changes: Math.max(0, j.legs.filter(l => !l.walk).length - 1), start: j.start, n: all.length };
 }
@@ -385,7 +390,11 @@ async function bestPT(a, b) {
 let nearList = [];
 const ptCache = new Map();
 const whenKey = () => $('when').value === 'now' ? 'now' : [$('when').value, $('date').value, $('time').value].join();
-const ptFor = (a, c) => { const k = [a.pc, c.pc, whenKey()].join('|'); if (!ptCache.has(k)) ptCache.set(k, bestPT(a, c).catch(() => null)); return ptCache.get(k); };
+let ptRunning = 0; const ptWait = [];
+const slot = async () => { if (ptRunning >= 2) await new Promise(r => ptWait.push(r)); ptRunning++; };
+const release = () => { ptRunning--; ptWait.shift()?.(); };
+const ptFor = (a, c) => { const k = [a.pc, c.pc, whenKey()].join('|'); if (!ptCache.has(k)) ptCache.set(k, (async () => { await slot(); try { return await bestPT(a, c); } catch (e) { return { err: true }; } finally { release(); } })());
+  ptCache.get(k).then(r => { if (r?.err) setTimeout(() => ptCache.delete(k), 0); }); return ptCache.get(k); };
 const RANK = { car: 'driving', pt: 'public transport', bike: 'cycling', foot: 'walking' };
 
 async function nearest() {
@@ -408,7 +417,7 @@ async function nearest() {
       msg('Checking public transport to each unit…');
       await Promise.all(pool.map(async c => { c.pt = await ptFor(a, c); }));
     }
-    const t = c => (rank === 'pt' ? c.pt?.dur : c[rank]?.duration) ?? Infinity;
+    const t = c => (rank === 'pt' ? (c.pt?.err ? undefined : c.pt?.dur) : c[rank]?.duration) ?? Infinity;
     nearList = [...pool].sort((x, y) => t(x) - t(y) || x.crow - y.crow).slice(0, 5);
     const min = k => Math.min(...nearList.map(c => c[k]?.duration ?? Infinity));
     const mins = { car: min('car'), bike: min('bike'), foot: min('foot') };
@@ -429,11 +438,11 @@ async function nearest() {
     const pts = await Promise.all(nearList.map((c, i) => ptFor(a, c).then(r => {
       const td = $('pt' + i); if (!td) return r;
       td.classList.remove('ld');
-      td.innerHTML = r ? `${fmtDur(r.dur)}<small>${r.changes ? r.changes + ' change' + (r.changes > 1 ? 's' : '') : 'direct'} · leave ${hhmm(r.start)}</small>` : '<small>None found</small>';
+      td.innerHTML = r?.err ? '<small>Couldn’t check. Try again in a minute</small>' : r ? `${fmtDur(r.dur)}<small>${r.changes ? r.changes + ' change' + (r.changes > 1 ? 's' : '') : 'direct'} · leave ${hhmm(r.start)}</small>` : '<small>None found</small>';
       return r;
     })));
-    const ptMin = Math.min(...pts.map(r => r?.dur ?? Infinity));
-    pts.forEach((r, i) => { if (r && r.dur === ptMin) $('pt' + i)?.classList.add('q'); });
+    const ptMin = Math.min(...pts.map(r => r && !r.err ? r.dur : Infinity));
+    pts.forEach((r, i) => { if (r && !r.err && r.dur === ptMin) $('pt' + i)?.classList.add('q'); });
   } catch (e) { msg(e.message || 'Something went wrong.', true); }
   finally { $('go').disabled = false; }
 }
@@ -464,7 +473,8 @@ $('f').addEventListener('submit', async ev => {
       road('car', a, b), road('bike', a, b), road('foot', a, b), settle(tfl(a, b)), settle(transitous(a, b))
     ]);
     const seen = new Set(), all = [];
-    for (const j of [...(tf.ok || []), ...(tr.ok || [])]) {
+    const walkOnly = [...(tf.ok || []), ...(tr.ok || [])].filter(isWalk);
+    for (const j of [...(tf.ok || []), ...(tr.ok || [])].filter(j => !isWalk(j))) {
       const k = hhmm(j.start) + hhmm(j.end); if (seen.has(k)) continue; seen.add(k); all.push(j);
     }
     all.sort((x, y) => new Date(x.end) - new Date(y.end) || x.dur - y.dur);
@@ -486,8 +496,8 @@ $('f').addEventListener('submit', async ev => {
     const P = {};
     {
       const cards = all.length ? all.map(jCard).join('')
-        : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : 'No public transport journeys found for this time.'}</p>`;
-      const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.length}`, tr.err ? 'Transitous unavailable' : `Transitous: ${tr.ok.length}`].join(' · ');
+        : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : (walkOnly.length ? `The journey planners only suggest walking (about ${fmtDur(Math.min(...walkOnly.map(j => j.dur)))}) for this trip at this time, so no bus or train was found that beats it.` : 'No public transport journeys found for this time.') + (tr.ok && !tr.ok.length ? ' Local buses outside London come from Transitous, which found nothing here. Its bus data can be patchy, so check Google Maps or the bus operator.' : '')}</p>`;
+      const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.filter(j => !isWalk(j)).length}`, tr.err ? `Transitous unavailable (${esc(tr.err.message || 'error')})` : `Transitous: ${tr.ok.length}`].join(' · ');
       let head = '';
       if (all.length) {
         const chg = j => Math.max(0, j.legs.filter(l => !l.walk).length - 1);
