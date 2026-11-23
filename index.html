@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Postcode Journeys</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE: practical, calm, a good station information point
+   IDEA: a British road/rail sign — plain lettering, one yellow, one blue
+   PICTURE: the result cards themselves, a ranked board of options
+   COLOUR+TYPE: white / ink, signal yellow accent, route blue; Overpass
+   LAYOUT: one column form on top, options board beneath */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0e1420);--ink:light-dark(#111418,#eef2f7);--mut:light-dark(#5b6470,#9aa5b4);
+--line:light-dark(#e3e7ec,#253045);--card:light-dark(#f6f8fa,#151d2c);--blue:light-dark(#1d4f91,#6fa3ea);--yel:#ffd200}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Overpass,system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(24px,4vw,56px) max(5vw,16px);max-width:1000px;margin:0 auto}
+header{background:var(--blue);color:#fff}
+header .band{padding-block:28px}
+h1{font-size:clamp(30px,5vw,46px);line-height:1.05;margin:0;font-weight:800;text-wrap:balance}
+h1 span{background:var(--yel);color:#111;padding:0 .2em;border-radius:4px}
+header p{margin:8px 0 0;opacity:.9;max-width:60ch}
+form{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:end}
+.row2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:12px}
+label{display:block;font-size:14px;font-weight:600;color:var(--mut);margin-bottom:4px}
+input,select,button{font:inherit;font-size:16px;min-height:48px;border-radius:8px}
+input,select{width:100%;padding:10px 12px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
+input.pc{text-transform:uppercase;font-weight:800;font-size:20px;letter-spacing:.02em}
+input:focus,select:focus,button:focus-visible{outline:3px solid var(--yel);outline-offset:1px;border-color:var(--blue)}
+.swap{background:var(--card);border:2px solid var(--line);color:var(--ink);width:48px;cursor:pointer}
+.go{background:var(--yel);color:#111;border:0;font-weight:800;padding:0 28px;cursor:pointer;margin-top:12px;width:100%}
+.go:disabled{opacity:.6;cursor:wait}
+#msg{margin:16px 0 0;color:var(--mut);min-height:1.5em}
+#msg.err{color:#c0392b;font-weight:600}
+.summary{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 0;border-bottom:2px solid var(--line);margin-bottom:16px;font-size:15px}
+.summary b{font-weight:800}
+h2{font-size:22px;margin:28px 0 10px;font-weight:800}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.opt .t{font-size:30px;font-weight:800;line-height:1.1;white-space:nowrap}
+.opt .k{font-weight:600;color:var(--mut);font-size:14px}
+.opt .d{font-size:15px;margin-top:4px}
+.best{border:2px solid var(--yel)}
+.jny{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:10px}
+.jh{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline}
+.jh .t{font-size:24px;font-weight:800;white-space:nowrap}
+.jh .m{color:var(--mut);font-size:15px;white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chip{font-size:13px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--line);color:var(--ink);white-space:nowrap}
+.chip.rail{background:#1d4f91;color:#fff}.chip.tube{background:#dc241f;color:#fff}.chip.bus{background:#e32017;color:#fff}
+.chip.elizabeth-line{background:#6950a1;color:#fff}.chip.overground{background:#ee7c0e;color:#111}.chip.walking{background:var(--line)}
+.chip.coach{background:#0a8f5a;color:#fff}.chip.dlr{background:#00a4a7;color:#111}
+details summary{cursor:pointer;color:var(--blue);font-weight:600;min-height:32px}
+ol.legs{margin:6px 0 0;padding-left:20px;font-size:15px}
+ol.legs li{margin:4px 0}
+ol.legs .tm{font-weight:800;white-space:nowrap}
+.links{display:flex;flex-wrap:wrap;gap:10px}
+.links a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border:2px solid var(--line);border-radius:8px;color:var(--blue);font-weight:600;text-decoration:none}
+.links a:hover{border-color:var(--blue)}
+.note{font-size:13px;color:var(--mut);margin-top:28px}
+.empty{color:var(--mut);padding:10px 0}
+@media(max-width:600px){form{grid-template-columns:1fr}.swap{width:100%}}
+@media(prefers-reduced-motion:no-preference){.opt,.jny{animation:in .25s ease both}@keyframes in{from{opacity:0;transform:translateY(4px)}}}
+</style>
+</head>
+<body>
+<header><div class="band">
+<h1>Postcode <span>journeys</span></h1>
+<p>Enter two UK postcodes. Live options from TfL (public transport, incl. national rail), OpenStreetMap routing (drive, cycle, walk) and postcodes.io.</p>
+</div></header>
+
+<main class="band">
+<form id="f" autocomplete="off">
+  <div><label for="from">From postcode</label><input id="from" class="pc" placeholder="MK40 1AA" required></div>
+  <button type="button" class="swap" id="swap" aria-label="Swap start and end">⇅</button>
+  <div><label for="to">To postcode</label><input id="to" class="pc" placeholder="EC1V 2PD" required></div>
+</form>
+<div class="row2">
+  <div><label for="when">Leave / arrive</label><select id="when"><option value="now">Leave now</option><option value="Departing">Depart at</option><option value="Arriving">Arrive by</option></select></div>
+  <div><label for="date">Date</label><input id="date" type="date"></div>
+  <div><label for="time">Time</label><input id="time" type="time"></div>
+  <div><label for="mpg">Car mpg · £/litre</label><div style="display:flex;gap:6px"><input id="mpg" type="number" value="45" min="10" max="150" aria-label="Miles per gallon"><input id="ppl" type="number" value="1.40" step="0.01" min="0.5" aria-label="Fuel price per litre"></div></div>
+</div>
+<button class="go" id="go" form="f" type="submit">Find travel options</button>
+<p id="msg" role="status"></p>
+<section id="out"></section>
+<p class="note">Car fuel cost is an estimate from distance and your mpg; tolls, parking and congestion charges are not included. Public transport fares are TfL's where it returns one. Times from TfL are live timetable data; road times assume typical traffic-free conditions.</p>
+</main>
+
+<script>
+{
+const $ = id => document.getElementById(id);
+const msg = (t, err) => { $('msg').textContent = t; $('msg').className = err ? 'err' : ''; };
+const norm = s => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+const pretty = s => { const n = norm(s); return n.length > 3 ? n.slice(0, -3) + ' ' + n.slice(-3) : n; };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtDur = sec => { const m = Math.round(sec / 60); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); return h + ' h ' + String(m % 60).padStart(2, '0'); };
+const miles = m => (m / 1609.344);
+const fmtMi = m => { const v = miles(m); return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' mi'; };
+const hhmm = iso => iso ? iso.slice(11, 16) : '';
+
+// remember inputs
+try { const s = JSON.parse(localStorage.getItem('pcj') || '{}'); for (const k of ['from','to','mpg','ppl']) if (s[k]) $(k).value = s[k]; } catch (e) {}
+const save = () => { try { localStorage.setItem('pcj', JSON.stringify({from:$('from').value,to:$('to').value,mpg:$('mpg').value,ppl:$('ppl').value})); } catch (e) {} };
+
+const now = new Date();
+$('date').value = now.toISOString().slice(0, 10);
+$('time').value = now.toTimeString().slice(0, 5);
+const syncWhen = () => { const on = $('when').value !== 'now'; $('date').disabled = $('time').disabled = !on; };
+$('when').addEventListener('change', syncWhen); syncWhen();
+
+$('swap').addEventListener('click', () => { const a = $('from').value; $('from').value = $('to').value; $('to').value = a; });
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  const j = await r.json().catch(() => null);
+  if (!r.ok) { const e = new Error((j && (j.error || j.message)) || ('HTTP ' + r.status)); e.status = r.status; throw e; }
+  return j;
+}
+
+async function lookup(pc) {
+  const j = await getJSON('https://api.postcodes.io/postcodes/' + encodeURIComponent(norm(pc)));
+  const r = j.result;
+  return { pc: r.postcode, lat: r.latitude, lon: r.longitude, place: [r.admin_ward, r.admin_district].filter(Boolean).join(', ') };
+}
+
+// OSRM via FOSSGIS (car/bike/foot), with the OSRM demo server as a car fallback
+async function road(profile, a, b) {
+  const coords = `${a.lon},${a.lat};${b.lon},${b.lat}`;
+  const urls = [`https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${coords}?overview=false`];
+  if (profile === 'car') urls.push(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
+  for (const u of urls) {
+    try { const j = await getJSON(u); if (j.code === 'Ok' && j.routes?.length) return j.routes[0]; } catch (e) {}
+  }
+  return null;
+}
+
+async function transit(a, b) {
+  const p = new URLSearchParams({ nationalSearch: 'true', journeyPreference: 'LeastTime' });
+  const w = $('when').value;
+  if (w !== 'now') { p.set('date', $('date').value.replace(/-/g, '')); p.set('time', $('time').value.replace(':', '')); p.set('timeIs', w); }
+  const u = `https://api.tfl.gov.uk/Journey/JourneyResults/${a.lat},${a.lon}/to/${b.lat},${b.lon}?${p}`;
+  const j = await getJSON(u);
+  return j.journeys || [];
+}
+
+function haversine(a, b) {
+  const R = 6371000, t = x => x * Math.PI / 180;
+  const dLat = t(b.lat - a.lat), dLon = t(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(t(a.lat)) * Math.cos(t(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function roadCard(label, r, extra, best) {
+  if (!r) return `<div class="opt"><div class="k">${label}</div><div class="d">No route returned</div></div>`;
+  return `<div class="opt${best ? ' best' : ''}"><div class="k">${label}${best ? ' · fastest' : ''}</div><div class="t">${fmtDur(r.duration)}</div><div class="d">${fmtMi(r.distance)}${extra ? ' · ' + extra : ''}</div></div>`;
+}
+
+function modeKey(id) { return id === 'national-rail' || id === 'international-rail' ? 'rail' : id; }
+
+function jCard(j) {
+  const legs = j.legs || [];
+  const moving = legs.filter(l => l.mode?.id !== 'walking');
+  const chips = legs.map(l => {
+    const id = l.mode?.id || '';
+    const nm = id === 'walking' ? `Walk ${l.duration}m` : (l.routeOptions?.[0]?.name || l.mode?.name || id);
+    return `<span class="chip ${esc(modeKey(id))}">${esc(nm)}</span>`;
+  }).join('');
+  const fare = j.fare?.totalCost ? ` · £${(j.fare.totalCost / 100).toFixed(2)}` : '';
+  const changes = Math.max(0, moving.length - 1);
+  const steps = legs.map(l => `<li><span class="tm">${hhmm(l.departureTime)}</span> ${esc(l.instruction?.summary || l.mode?.name)} <span style="color:var(--mut)">(${l.duration} min)</span></li>`).join('');
+  return `<div class="jny"><div class="jh"><span class="t">${fmtDur(j.duration * 60)}</span><span class="m">${hhmm(j.startDateTime)} → ${hhmm(j.arrivalDateTime)} · ${changes ? changes + ' change' + (changes > 1 ? 's' : '') : 'direct'}${fare}</span></div>
+  <div class="chips">${chips}</div><details><summary>Step by step</summary><ol class="legs">${steps}</ol></details></div>`;
+}
+
+$('f').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const f = $('from').value.trim(), t = $('to').value.trim();
+  if (!f || !t) return;
+  save();
+  $('go').disabled = true; $('out').innerHTML = ''; msg('Looking up postcodes…');
+  try {
+    let a, b;
+    try { [a, b] = await Promise.all([lookup(f), lookup(t)]); }
+    catch (e) { throw new Error('Couldn’t find one of those postcodes — check them and try again.'); }
+    msg('Fetching routes…');
+    const [car, bike, foot, pt] = await Promise.all([
+      road('car', a, b), road('bike', a, b), road('foot', a, b),
+      transit(a, b).then(v => ({ ok: v }), e => ({ err: e }))
+    ]);
+    const crow = haversine(a, b);
+    const ptBest = pt.ok?.length ? Math.min(...pt.ok.map(j => j.duration * 60)) : Infinity;
+    const times = { car: car?.duration ?? Infinity, bike: bike?.duration ?? Infinity, foot: foot?.duration ?? Infinity, pt: ptBest };
+    const fastest = Object.entries(times).sort((x, y) => x[1] - y[1])[0][0];
+    let fuel = '';
+    if (car) { const mpg = +$('mpg').value || 45, ppl = +$('ppl').value || 1.4; fuel = '≈ £' + (miles(car.distance) / mpg * 4.54609 * ppl).toFixed(2) + ' fuel'; }
+
+    const ptCards = pt.ok?.length ? pt.ok.map(jCard).join('')
+      : `<p class="empty">${pt.err ? 'TfL couldn’t plan this one' + (pt.err.status === 429 ? ' (rate limit — try again in a minute)' : '') + '.' : 'No public transport journeys found.'} Try the links below.</p>`;
+
+    const q = (s) => encodeURIComponent(s);
+    const g = m => `https://www.google.com/maps/dir/?api=1&origin=${q(a.pc)}&destination=${q(b.pc)}&travelmode=${m}`;
+
+    $('out').innerHTML = `
+      <div class="summary"><span><b>${esc(a.pc)}</b> ${esc(a.place)}</span><span>→</span><span><b>${esc(b.pc)}</b> ${esc(b.place)}</span><span style="color:var(--mut)">${fmtMi(crow)} as the crow flies</span></div>
+      <h2>By road and on foot</h2>
+      <div class="grid">
+        ${roadCard('Drive', car, fuel, fastest === 'car')}
+        ${roadCard('Cycle', bike, '', fastest === 'bike')}
+        ${roadCard('Walk', foot, '', fastest === 'foot')}
+      </div>
+      <h2>Public transport${fastest === 'pt' ? ' · fastest' : ''}</h2>
+      ${ptCards}
+      <h2>Check or book elsewhere</h2>
+      <div class="links">
+        <a href="${g('transit')}" target="_blank" rel="noopener">Google Maps · transit</a>
+        <a href="${g('driving')}" target="_blank" rel="noopener">Google Maps · driving</a>
+        <a href="https://www.nationalrail.co.uk/" target="_blank" rel="noopener">National Rail</a>
+        <a href="https://www.nationalexpress.com/" target="_blank" rel="noopener">National Express</a>
+      </div>`;
+    msg('');
+  } catch (e) {
+    msg(e.message || 'Something went wrong fetching routes.', true);
+  } finally { $('go').disabled = false; }
+});
+
+for (const id of ['from', 'to']) $(id).addEventListener('blur', e => { if (e.target.value.trim()) e.target.value = pretty(e.target.value); });
+}
+</script>
+</body>
+</html>
