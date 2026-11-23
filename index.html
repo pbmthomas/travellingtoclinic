@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Postcode Journeys</title>
+<title>Home to Eye Clinic Journey Planner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -22,6 +22,7 @@ header{background:var(--blue);color:#fff}
 header .band{padding-block:28px}
 h1{font-size:clamp(30px,5vw,46px);line-height:1.05;margin:0;font-weight:800;text-wrap:balance}
 h1 span{background:var(--yel);color:#111;padding:0 .2em;border-radius:4px}
+header + .test{background:var(--yel);color:#111}.test .band{padding-block:12px;font-size:15px;max-width:1000px}
 header p{margin:8px 0 0;opacity:.9;max-width:60ch}
 form{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:end}
 .row2{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:12px}
@@ -59,6 +60,7 @@ h2{font-size:22px;margin:28px 0 10px;font-weight:800}
 .facts div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .facts dt{font-size:13px;font-weight:700;color:var(--mut)}.facts dd{margin:2px 0 0;font-size:20px;font-weight:800;line-height:1.25}
 .facts small{display:block;font-size:13px;font-weight:400;color:var(--mut)}
+.sub{font-size:18px;font-weight:800;margin:4px 0 8px}
 .notes{margin:0 0 14px;padding-left:20px;font-size:15px;max-width:70ch}.notes li{margin:4px 0}.notes a{color:var(--blue)}
 @media(max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
@@ -92,13 +94,14 @@ ol.legs .tm{font-weight:800;white-space:nowrap}
 </head>
 <body>
 <header><div class="band">
-<h1>Postcode <span>journeys</span></h1>
-<p>Enter two UK postcodes. Live options from TfL (public transport, incl. national rail), OpenStreetMap routing (drive, cycle, walk) and postcodes.io.</p>
+<h1>Home to Eye Clinic <span>Journey Planner</span></h1>
+<p>Enter your home postcode and choose an NHS eye clinic, or type any postcode. You'll see live options to drive, cycle, walk or take public transport.</p>
 </div></header>
+<div class="test" role="note"><div class="band"><strong>Testing version.</strong> This is a prototype for testing only and is not an official NHS service. Journey times, routes, fares and clinic details come from third-party sources and may be incomplete, out of date or wrong. Always check with the transport operator and your appointment letter or clinic before you travel. The postcodes you search are sent to the mapping and transport services listed at the bottom of the page.</div></div>
 
 <main class="band">
 <form id="f" autocomplete="off">
-  <div><label for="from">From postcode</label><input id="from" class="pc" placeholder="MK40 1AA" required></div>
+  <div><label for="from">Home postcode</label><input id="from" class="pc" placeholder="MK40 1AA" required></div>
   <button type="button" class="swap" id="swap" aria-label="Swap start and end">⇅</button>
   <div class="combo"><label for="to">To: postcode or NHS eye unit</label>
     <div class="cw"><input id="to" placeholder="Postcode, or type a unit / trust" required role="combobox" aria-expanded="false" aria-controls="tolist" aria-autocomplete="list"><button type="button" class="tg" id="toggle" aria-label="Show all NHS eye units" tabindex="-1">▾</button></div>
@@ -114,7 +117,7 @@ ol.legs .tm{font-weight:800;white-space:nowrap}
 <button class="go" id="go" form="f" type="submit">Find travel options</button>
 <p id="msg" role="status"></p>
 <section id="out"></section>
-<p class="note">Car fuel cost is an estimate from distance and your mpg; tolls, parking and congestion charges are not included. Public transport fares are TfL's where it returns one. Public transport comes from the TfL Journey Planner and from <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous</a> (open timetable data, © OpenStreetMap contributors and the data publishers listed there); road times assume typical traffic-free conditions.</p>
+<p class="note">Services used: postcodes.io, TfL Journey Planner, Transitous, OpenStreetMap routing (FOSSGIS / OSRM) and Google Fonts. Car fuel cost is an estimate from distance and your mpg; tolls, parking and congestion charges are not included. Public transport fares are TfL's where it returns one. Public transport comes from the TfL Journey Planner and from <a href="https://transitous.org/sources/" target="_blank" rel="noopener">Transitous</a> (open timetable data, © OpenStreetMap contributors and the data publishers listed there); road times assume typical traffic-free conditions.</p>
 </main>
 
 <script>
@@ -357,7 +360,25 @@ $('f').addEventListener('submit', async ev => {
       const cards = all.length ? all.map(jCard).join('')
         : `<p class="empty">${pt.err ? 'Neither TfL nor Transitous could plan this one right now' + ((tf.err?.status === 429 || tr.err?.status === 429) ? ' (rate limit, so try again in a minute)' : '') + '.' : 'No public transport journeys found for this time.'}</p>`;
       const srcNote = [tf.err ? 'TfL unavailable' : `TfL: ${tf.ok.length}`, tr.err ? 'Transitous unavailable' : `Transitous: ${tr.ok.length}`].join(' · ');
-      P.pt = `<p class="srcs">${srcNote}. Sorted by arrival time.</p>${cards}
+      let head = '';
+      if (all.length) {
+        const chg = j => Math.max(0, j.legs.filter(l => !l.walk).length - 1);
+        const walkMin = j => j.legs.filter(l => l.walk).reduce((t, l) => t + (l.mins || 0), 0);
+        const fast = all.reduce((x, y) => y.dur < x.dur ? y : x), early = all[0];
+        const minChg = Math.min(...all.map(chg)), fewest = all.find(j => chg(j) === minChg);
+        const fares = all.filter(j => j.fare), cheap = fares.length ? fares.reduce((x, y) => y.fare < x.fare ? y : x) : null;
+        const LBL = { rail: 'Train', tube: 'Underground', bus: 'Bus', coach: 'Coach', tram: 'Tram', ferry: 'Ferry', dlr: 'DLR', overground: 'Overground', 'elizabeth-line': 'Elizabeth line' };
+        const modes = [...new Set(all.flatMap(j => j.legs.filter(l => !l.walk).map(l => LBL[l.key] || 'Other')))];
+        const wk = all.map(walkMin), wMin = Math.min(...wk), wMax = Math.max(...wk);
+        const leave = j => `<small>leave ${hhmm(j.start)}, arrive ${hhmm(j.end)}</small>`;
+        head = facts([['Fastest', fmtDur(fast.dur) + leave(fast)],
+          ['Earliest arrival', hhmm(early.end) + `<small>leave ${hhmm(early.start)} · ${fmtDur(early.dur)}</small>`],
+          ['Fewest changes', (minChg ? minChg + ' change' + (minChg > 1 ? 's' : '') : 'Direct') + `<small>${fmtDur(fewest.dur)}, leave ${hhmm(fewest.start)}</small>`],
+          cheap ? ['Cheapest fare', `£${cheap.fare.toFixed(2)}<small>TfL fare, ${fmtDur(cheap.dur)}</small>`] : ['Fares', 'Not available<small>check National Rail or the operator</small>'],
+          ['Modes used', modes.join(', ')],
+          ['Walking', (wMin === wMax ? wMin + ' min' : `${wMin}–${wMax} min`) + '<small>within the journey</small>']]);
+      }
+      P.pt = `${head}<h3 class="sub">All options</h3><p class="srcs">${srcNote}. Sorted by arrival time.</p>${cards}
         <div class="links">${link(g('transit'), 'Google Maps · transit')}${link('https://www.nationalrail.co.uk/', 'National Rail')}${link('https://www.nationalexpress.com/', 'National Express')}</div>`;
     }
     if (car) {
